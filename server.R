@@ -11,36 +11,30 @@ library(shiny)
 library(quanteda)
 library(data.table)
 library(qdap)
-library(shinyjs)
 
-result <- readRDS("result2.rds")
+# Loading the model from disk
+result <- readRDS("result3cut.rds")
 
+# I-gram lookup function
 SimplePredict <- function(sentence,i) {
-    
-    #sentence <- tolower(sentence)
-    
-    
-    
+    # keeping the last ´í' words of the sentence
     if(length(sentence) > i){
         sentence <- sentence[(length(sentence)-(i-1)):length(sentence)]
     }
     
+    # concatenating the words into an i-gram
     sentence <- paste(sentence, collapse = " ")
     
-    print(sentence)
-    
-    output <- result[sentence]
-    
-    output <- unlist(output[,2:4])
-    
-    output
+    # looking for the i-gram in the model
+    result[sentence][,2]
 }
 
-SimplePredict2 <- function(sentence) {
-    
+Predict <- function(sentence) {
+    # replacing contractions and abreviations from imput sentence
     sentence <- replace_contraction(sentence)
     sentence <- replace_abbreviation(sentence)
     
+    # tokenising the input sentence
     sentence <- tokens(sentence,
                        remove_numbers = TRUE,
                        remove_punct = TRUE,
@@ -50,20 +44,16 @@ SimplePredict2 <- function(sentence) {
                        remove_hyphens = TRUE, 
                        remove_url = TRUE)
     
-    #str(sentence)
-    
-    #sentence.token <- tokens(sentence)
-    
-    #sentence <- tokens_select(sentence, readLines("en_curse_words.txt"), selection = "remove", padding = FALSE)
-    #sentence <- tokens_select(sentence, pattern = dico.98.cover, selection = "keep", padding = FALSE)
+    # removing any non-alphabetical sequence
     sentence <- tokens_select(sentence, pattern = "^[a-zA-Z]*$", selection = "keep", valuetype = "regex", padding = FALSE)
     
-    #sentence <- unlist(strsplit(sentence," "))
-    
+    # loweringthe sentence
     sentence <- tolower(sentence$text1)
     
+    # looking of an existing 5-gram
     output <- SimplePredict(sentence,5)
     
+    # applying stupid backoff approach to lower n-grams
     if(is.na(output[1])) {
         output <- SimplePredict(sentence,4)
         
@@ -78,51 +68,31 @@ SimplePredict2 <- function(sentence) {
                 }
             }
         }
-        
     }
     
-    print(output)
-    
-    ifelse(is.na(output[1]),output <- c("","",""),output)
-    
-    print(output)
-    
-    output
+    # replacing NA by "" if no result
+    ifelse(is.na(output[1]),output <- "",output)
 }
 
-
-
-# Define server logic required to draw a histogram
+# Define server logic
 shinyServer(function(input, output, session) {
     
-    test <- reactive({SimplePredict2(input$textInput)})
+    # word prediction of input text
+    prediction <- reactive({Predict(input$textInput)})
     
-    observe({
-        req(input$textInput)
-        
-        updateActionButton(session, "button1",
-                       label = as.character(test()[1]))
-        
-        updateActionButton(session, "button2",
-                           label = as.character(test()[2]))
-        
-        updateActionButton(session, "button3",
-                           label = as.character(test()[3]))
+    # when text is inserted 
+    observeEvent(input$textInput,{
+            # replacing "data loading..." text once the model is loaded
+            updateTextAreaInput(session, "textInput", label = "Enter your text:")
+      
+            # button value update with prediction 
+            updateActionButton(session, "button1",
+                               label = as.character(prediction()[1]))
     })
     
+    # when button is clicked
     observeEvent(input$button1,{
-        updateTextInput(session, "textInput", value = paste(gsub(" $","",input$textInput),test()[1]))
+            # adding predicted word to input sentence
+            updateTextAreaInput(session, "textInput", value = paste(gsub(" $","",input$textInput),prediction()[1]))
         })
-    
-    observeEvent(input$button2,{
-        updateTextInput(session, "textInput", value = paste(gsub(" $","",input$textInput),test()[2]))
-    })
-    
-    observeEvent(input$button3,{
-        updateTextInput(session, "textInput", value = paste(gsub(" $","",input$textInput),test()[3]))
-    })
-    
-    
-
-
 })
